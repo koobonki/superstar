@@ -1,0 +1,27 @@
+server:
+  port: 8080
+
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          my-oidc:
+            client-id: your-client-id
+            client-secret: your-client-secret
+            scope:
+              - openid
+              - profile
+              - email
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            client-name: My OIDC
+        provider:
+          my-oidc:
+            issuer-uri: https://your-idp.example.com/realms/your-realm
+
+springdoc:
+  swagger-ui:
+    oauth:
+      client-id: your-client-id
+      use-pkce-with-authorization-code-grant: true

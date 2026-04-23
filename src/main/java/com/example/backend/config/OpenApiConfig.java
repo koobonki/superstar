@@ -1,7 +1,13 @@
 package com.example.backend.config;
 
+import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.security.OAuthFlow;
+import io.swagger.v3.oas.models.security.OAuthFlows;
+import io.swagger.v3.oas.models.security.Scopes;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
+import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -13,14 +19,29 @@ public class OpenApiConfig {
 
     @Bean
     public OpenAPI openAPI() {
+        SecurityScheme oauth2Scheme = new SecurityScheme()
+                .type(SecurityScheme.Type.OAUTH2)
+                .description("OAuth2 Authorization Code with OIDC")
+                .flows(new OAuthFlows()
+                        .authorizationCode(new OAuthFlow()
+                                .authorizationUrl("https://auth.example.com/oauth2/authorize")
+                                .tokenUrl("https://auth.example.com/oauth2/token")
+                                .scopes(new Scopes()
+                                        .addString("openid", "OpenID Connect scope")
+                                        .addString("profile", "Profile scope")
+                                        .addString("email", "Email scope"))));
+
         return new OpenAPI()
                 .info(new Info()
                         .title("Backend API")
                         .version("v1")
                         .description("""
-                                Swagger 접근 시 Spring Security 로그인 필요.
-                                인증 정보는 tb_com_user(user_id, password, role) 기반으로 검증됩니다.
-                                로그인 후 /getSessionInfo에서 현재 세션 사용자(empno, name)를 확인할 수 있습니다.
-                                """));
+                                OAuth2(OIDC) 로그인 기반 API 문서입니다.
+                                Swagger의 Authorize 버튼으로 로그인 후 API를 호출할 수 있습니다.
+                                """))
+                .components(new Components()
+                        .addSecuritySchemes("oauth2", oauth2Scheme))
+                .addSecurityItem(new SecurityRequirement()
+                        .addList("oauth2"));
     }
 }
