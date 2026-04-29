@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyBatis 2.0 -> 3.0 Converter</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff;
+      --fg: #1e1e1e;
+      --border: #c8c8c8;
+      --accent: #2563eb;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --fg: #f1f5f9;
+        --border: #475569;
+        --accent: #60a5fa;
+      }
+    }
+    body {
+      font-family: Arial, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      margin: 20px;
+    }
+    h1 {
+      margin-bottom: 8px;
+      font-size: 22px;
+    }
+    p {
+      margin-top: 0;
+      margin-bottom: 14px;
+      opacity: 0.9;
+      line-height: 1.5;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 380px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      background: transparent;
+      color: inherit;
+      line-height: 1.45;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 13px;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+    .actions {
+      margin: 12px 0;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      background: transparent;
+      color: inherit;
+    }
+    button.primary {
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    code {
+      display: inline-block;
+      background: color-mix(in srgb, var(--fg) 8%, transparent);
+      border-radius: 5px;
+      padding: 2px 6px;
+    }
+    .hint {
+      font-size: 12px;
+      opacity: 0.8;
+      margin-top: 8px;
+    }
+    @media (max-width: 980px) {
+      .row {
+        grid-template-columns: 1fr;
+      }
+      textarea {
+        min-height: 260px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>MyBatis 2.0 -> 3.0 변환기</h1>
+  <p>
+    iBATIS/MyBatis 2.x 스크립트를 MyBatis 3.x 문법으로 변환합니다.
+    <code>parameterClass</code>, <code>resultClass</code> 속성 변환과
+    태그 내부 불필요 공백에 유연한 정규식 처리를 포함합니다.
+  </p>
+
+  <div class="actions">
+    <button class="primary" id="convertBtn">변환</button>
+    <button id="sampleBtn">샘플 입력</button>
+    <button id="copyBtn">결과 복사</button>
+    <button id="clearBtn">초기화</button>
+  </div>
+
+  <div class="row">
+    <div>
+      <strong>원본 (MyBatis 2.x)</strong>
+      <textarea id="source" placeholder="여기에 2.x 쿼리를 붙여넣으세요."></textarea>
+    </div>
+    <div>
+      <strong>결과 (MyBatis 3.x)</strong>
+      <textarea id="result" placeholder="변환 결과가 표시됩니다."></textarea>
+    </div>
+  </div>
+
+  <div class="hint">
+    변환 대상 예: <code>&lt;isNotEmpty&gt;</code>, <code>&lt;isEqual&gt;</code>,
+    <code>#argument#</code>, <code>parameterClass</code>, <code>resultClass</code>
+  </div>
+
+  <script>
+    function parseAttributes(attrText) {
+      const attributes = {};
+      const attrRegex = /([a-zA-Z_][\w:.-]*)\s*=\s*("([^"]*)"|'([^']*)')/g;
+      let match;
+      while ((match = attrRegex.exec(attrText)) !== null) {
+        const key = match[1].trim();
+        const value = (match[3] ?? match[4] ?? "").trim();
+        attributes[key] = value;
+      }
+      return attributes;
+    }
+
+    function toOgnlLiteral(value) {
+      if (value === undefined || value === null || value === "") {
+        return "''";
+      }
+      const trimmed = String(value).trim();
+      if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+        return trimmed;
+      }
+      if (/^(true|false|null)$/i.test(trimmed)) {
+        return trimmed.toLowerCase();
+      }
+      if ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+        return trimmed;
+      }
+      return "'" + trimmed.replace(/'/g, "\\'") + "'";
+    }
+
+    function getTestExpression(tagName, attrs) {
+      const property = attrs.property || "/* property */";
+      const compareValue = attrs.compareValue;
+      const compareProperty = attrs.compareProperty;
+      const compareTarget = compareProperty || toOgnlLiteral(compareValue);
+
+      switch (tagName) {
+        case "isNotNull":
+          return property + " != null";
+        case "isNull":
+          return property + " == null";
+        case "isNotEmpty":
+          return property + " != null and " + property + " != ''";
+        case "isEmpty":
+          return property + " == null or " + property + " == ''";
+        case "isEqual":
+          return property + " == " + compareTarget;
+        case "isNotEqual":
+          return property + " != " + compareTarget;
+        case "isGreaterThan":
+          return property + " > " + compareTarget;
+        case "isGreaterEqual":
+          return property + " >= " + compareTarget;
+        case "isLessThan":
+          return property + " < " + compareTarget;
+        case "isLessEqual":
+          return property + " <= " + compareTarget;
+        default:
+          return "/* TODO: condition */";
+      }
+    }
+
+    function convertConditionalTags(sqlText) {
+      const tagNameAlternation =
+        "(isNotNull|isNull|isNotEmpty|isEmpty|isEqual|isNotEqual|isGreaterThan|isGreaterEqual|isLessThan|isLessEqual)";
+
+      // 공백이 불규칙한 opening tag에도 대응
+      const openTagRegex = new RegExp("<\\s*" + tagNameAlternation + "\\b([^>]*)>", "gi");
+      const closeTagRegex = new RegExp("<\\s*\\/\\s*" + tagNameAlternation + "\\s*>", "gi");
+
+      let converted = sqlText.replace(openTagRegex, (_, rawTagName, rawAttrs) => {
+        const attrs = parseAttributes(rawAttrs || "");
+        const testExpression = getTestExpression(rawTagName, attrs);
+        const prepend = attrs.prepend ? attrs.prepend + " " : "";
+        return `<if test="${testExpression}">${prepend}`;
+      });
+
+      converted = converted.replace(closeTagRegex, "</if>");
+      return converted;
+    }
+
+    function convertDynamicTag(sqlText) {
+      // <dynamic prepend="WHERE"> -> <trim prefix="WHERE" prefixOverrides="AND |OR ">
+      const dynamicOpenTagRegex = /<\s*dynamic\b([^>]*)>/gi;
+      const dynamicCloseTagRegex = /<\s*\/\s*dynamic\s*>/gi;
+
+      let converted = sqlText.replace(dynamicOpenTagRegex, (_, rawAttrs) => {
+        const attrs = parseAttributes(rawAttrs || "");
+        const prefix = attrs.prepend || "";
+        if (prefix) {
+          return `<trim prefix="${prefix}" prefixOverrides="AND |OR ">`;
+        }
+        return `<trim prefixOverrides="AND |OR ">`;
+      });
+
+      converted = converted.replace(dynamicCloseTagRegex, "</trim>");
+      return converted;
+    }
+
+    function convertStatementAttributes(sqlText) {
+      // 불필요한 공백과 대소문자를 유연하게 허용
+      return sqlText
+        .replace(/\bparameterClass\s*=\s*("([^"]*)"|'([^']*)')/gi, 'parameterType=$1')
+        .replace(/\bresultClass\s*=\s*("([^"]*)"|'([^']*)')/gi, 'resultType=$1');
+    }
+
+    function convertHashParameterSyntax(sqlText) {
+      // #argument# -> #{argument}
+      // 공백 허용: #   argument   #
+      return sqlText.replace(/#\s*([a-zA-Z_][\w.\[\]]*)\s*#/g, "#{$1}");
+    }
+
+    function convertDollarParameterSyntax(sqlText) {
+      // $name$ -> ${name}
+      return sqlText.replace(/\$\s*([a-zA-Z_][\w.\[\]]*)\s*\$/g, "${$1}");
+    }
+
+    function convertIterateTag(sqlText) {
+      // 간단한 iterate -> foreach 변환
+      const iterateOpenRegex = /<\s*iterate\b([^>]*)>/gi;
+      const iterateCloseRegex = /<\s*\/\s*iterate\s*>/gi;
+
+      let converted = sqlText.replace(iterateOpenRegex, (_, rawAttrs) => {
+        const attrs = parseAttributes(rawAttrs || "");
+        const property = attrs.property || "list";
+        const conjunction = attrs.conjunction || ",";
+        const open = attrs.open ? ` open="${attrs.open}"` : "";
+        const close = attrs.close ? ` close="${attrs.close}"` : "";
+        return `<foreach collection="${property}" item="item" separator="${conjunction}"${open}${close}>`;
+      });
+
+      converted = converted.replace(iterateCloseRegex, "</foreach>");
+      // iBATIS iterate 내부의 #property[]# 패턴을 #{item}으로 변환
+      converted = converted.replace(/#\s*([a-zA-Z_][\w.]*)\[\]\s*#/g, "#{item}");
+      return converted;
+    }
+
+    function convertMyBatis2to3(input) {
+      let output = input;
+      output = convertStatementAttributes(output);
+      output = convertDynamicTag(output);
+      output = convertConditionalTags(output);
+      output = convertIterateTag(output);
+      output = convertHashParameterSyntax(output);
+      output = convertDollarParameterSyntax(output);
+      return output;
+    }
+
+    function loadSample() {
+      const sample = `
+<select id="findUsers" parameterClass="map" resultClass="User">
+  SELECT * FROM USERS
+  <dynamic prepend="WHERE">
+    <isNotEmpty   prepend="AND"   property="name"   >
+      NAME = # name #
+    </isNotEmpty>
+    <isEqual prepend="AND" property="status" compareValue="A">
+      STATUS = #status#
+    </isEqual>
+  </dynamic>
+  AND ID IN
+  <iterate property="ids" open="(" close=")" conjunction=",">
+    #ids[]#
+  </iterate>
+</select>`.trim();
+      document.getElementById("source").value = sample;
+    }
+
+    document.getElementById("convertBtn").addEventListener("click", () => {
+      const source = document.getElementById("source").value;
+      document.getElementById("result").value = convertMyBatis2to3(source);
+    });
+
+    document.getElementById("sampleBtn").addEventListener("click", loadSample);
+
+    document.getElementById("copyBtn").addEventListener("click", async () => {
+      const output = document.getElementById("result").value;
+      if (!output) {
+        return;
+      }
+      await navigator.clipboard.writeText(output);
+    });
+
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      document.getElementById("source").value = "";
+      document.getElementById("result").value = "";
+    });
+  </script>
+</body>
+</html>
