@@ -59,7 +59,7 @@ function getTestExpression(tagName, attrs) {
     case "isEmpty":
       return property + " == null or " + property + " == ''";
     case "isEqual":
-      return property + " == " + compareTarget;
+      return property + " != null and " + property + ".equals(" + compareTarget + ")";
     case "isNotEqual":
       return property + " != " + compareTarget;
     case "isGreaterThan":
