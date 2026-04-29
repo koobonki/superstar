@@ -232,15 +232,35 @@
         .replace(/\bresultClass\s*=\s*("([^"]*)"|'([^']*)')/gi, 'resultType=$1');
     }
 
+    function toLowerCamelFromUpperSnake(token) {
+      const lowerCase = token.toLowerCase();
+      return lowerCase.replace(/_([a-z0-9])/g, (_, ch) => ch.toUpperCase());
+    }
+
+    function mapArgumentToken(token) {
+      const normalized = token.trim();
+      // #TEST_ARG# 같은 UPPER_SNAKE_CASE 인자는 #{dto.testArg}로 변환
+      if (/^[A-Z][A-Z0-9_]*$/.test(normalized) && normalized.includes("_")) {
+        return "dto." + toLowerCamelFromUpperSnake(normalized);
+      }
+      return normalized;
+    }
+
     function convertHashParameterSyntax(sqlText) {
       // #argument# -> #{argument}
       // 공백 허용: #   argument   #
-      return sqlText.replace(/#\s*([a-zA-Z_][\w.\[\]]*)\s*#/g, "#{$1}");
+      return sqlText.replace(/#\s*([a-zA-Z_][\w.\[\]]*)\s*#/g, (_, rawToken) => {
+        const mappedToken = mapArgumentToken(rawToken);
+        return `#{${mappedToken}}`;
+      });
     }
 
     function convertDollarParameterSyntax(sqlText) {
       // $name$ -> ${name}
-      return sqlText.replace(/\$\s*([a-zA-Z_][\w.\[\]]*)\s*\$/g, "${$1}");
+      return sqlText.replace(/\$\s*([a-zA-Z_][\w.\[\]]*)\s*\$/g, (_, rawToken) => {
+        const mappedToken = mapArgumentToken(rawToken);
+        return "${" + mappedToken + "}";
+      });
     }
 
     function convertIterateTag(sqlText) {
@@ -284,6 +304,9 @@
     </isNotEmpty>
     <isEqual prepend="AND" property="status" compareValue="A">
       STATUS = #status#
+    </isEqual>
+    <isEqual prepend="AND" property="type" compareValue="N">
+      TYPE = #TEST_ARG#
     </isEqual>
   </dynamic>
   AND ID IN
