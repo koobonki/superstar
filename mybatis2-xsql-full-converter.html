@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XSQL Full Converter (MyBatis 2.x -> 3.x)</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff;
+      --fg: #1e1e1e;
+      --border: #c8c8c8;
+      --accent: #7c3aed;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b1020;
+        --fg: #eef2ff;
+        --border: #475569;
+        --accent: #a78bfa;
+      }
+    }
+    body {
+      font-family: Arial, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      margin: 20px;
+    }
+    h1 {
+      margin-bottom: 8px;
+      font-size: 22px;
+    }
+    p {
+      margin-top: 0;
+      margin-bottom: 14px;
+      opacity: 0.9;
+      line-height: 1.5;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 420px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      background: transparent;
+      color: inherit;
+      line-height: 1.45;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 13px;
+      resize: vertical;
+      box-sizing: border-box;
+    }
+    .actions {
+      margin: 12px 0;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      background: transparent;
+      color: inherit;
+    }
+    button.primary {
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    code {
+      display: inline-block;
+      background: color-mix(in srgb, var(--fg) 8%, transparent);
+      border-radius: 5px;
+      padding: 2px 6px;
+    }
+    .hint {
+      font-size: 12px;
+      opacity: 0.85;
+      margin-top: 8px;
+    }
+    @media (max-width: 980px) {
+      .row {
+        grid-template-columns: 1fr;
+      }
+      textarea {
+        min-height: 260px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>XSQL 전용 전체 변환기 (MyBatis 2.x -> 3.x)</h1>
+  <p>
+    <code>convert-xsql-mybatis2-to-3.js</code>의 변환 기능을 HTML로 옮긴 버전입니다.
+    2.0 <code>.xsql</code> 내용을 통째로 붙여넣고 변환 버튼을 누르면 3.0 문법으로 변환해 보여줍니다.
+  </p>
+
+  <div class="actions">
+    <button class="primary" id="convertBtn">전체 변환</button>
+    <button id="sampleBtn">샘플 입력</button>
+    <button id="copyBtn">결과 복사</button>
+    <button id="clearBtn">초기화</button>
+  </div>
+
+  <div class="row">
+    <div>
+      <strong>원본 (MyBatis 2.x / .xsql 전체)</strong>
+      <textarea id="source" placeholder="여기에 2.0 xsql 파일 내용을 통째로 붙여넣으세요."></textarea>
+    </div>
+    <div>
+      <strong>결과 (MyBatis 3.x)</strong>
+      <textarea id="result" placeholder="변환 결과가 표시됩니다."></textarea>
+    </div>
+  </div>
+
+  <div class="hint">
+    변환 대상: <code>parameterClass/resultClass</code>,
+    <code>dynamic</code>, <code>isNotEmpty/isEqual...</code>,
+    <code>iterate</code>, <code>#...#</code>, <code>$...$</code>
+  </div>
+
+  <script>
+    function parseAttributes(attrText) {
+      const attributes = {};
+      const attrRegex = /([a-zA-Z_][\w:.-]*)\s*=\s*("([^"]*)"|'([^']*)')/g;
+      let match;
+      while ((match = attrRegex.exec(attrText)) !== null) {
+        const key = match[1].trim();
+        const value = (match[3] ?? match[4] ?? "").trim();
+        attributes[key] = value;
+      }
+      return attributes;
+    }
+
+    function toOgnlLiteral(value) {
+      if (value === undefined || value === null || value === "") {
+        return "''";
+      }
+      const trimmed = String(value).trim();
+      if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+        return trimmed;
+      }
+      if (/^(true|false|null)$/i.test(trimmed)) {
+        return trimmed.toLowerCase();
+      }
+      if (
+        (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+        (trimmed.startsWith('"') && trimmed.endsWith('"'))
+      ) {
+        return trimmed;
+      }
+      return "'" + trimmed.replace(/'/g, "\\'") + "'";
+    }
+
+    function getTestExpression(tagName, attrs) {
+      const property = attrs.property || "/* property */";
+      const compareValue = attrs.compareValue;
+      const compareProperty = attrs.compareProperty;
+      const compareTarget = compareProperty || toOgnlLiteral(compareValue);
+
+      switch (tagName) {
+        case "isNotNull":
+          return property + " != null";
+        case "isNull":
+          return property + " == null";
+        case "isNotEmpty":
+          return property + " != null and " + property + " != ''";
+        case "isEmpty":
+          return property + " == null or " + property + " == ''";
+        case "isEqual":
+          return property + " != null and " + property + ".equals(" + compareTarget + ")";
+        case "isNotEqual":
+          return property + " == null or !" + property + ".equals(" + compareTarget + ")";
+        case "isGreaterThan":
+          return property + " != null and " + compareTarget + " != null and " + property + " > " + compareTarget;
+        case "isGreaterEqual":
+          return property + " != null and " + compareTarget + " != null and " + property + " >= " + compareTarget;
+        case "isLessThan":
+          return property + " != null and " + compareTarget + " != null and " + property + " < " + compareTarget;
+        case "isLessEqual":
+          return property + " != null and " + compareTarget + " != null and " + property + " <= " + compareTarget;
+        default:
+          return "/* TODO: condition */";
+      }
+    }
+
+    function convertConditionalTags(sqlText) {
+      const tagNameAlternation =
+        "(isNotNull|isNull|isNotEmpty|isEmpty|isEqual|isNotEqual|isGreaterThan|isGreaterEqual|isLessThan|isLessEqual)";
+
+      const openTagRegex = new RegExp("<\\s*" + tagNameAlternation + "\\b([^>]*)>", "gi");
+      const closeTagRegex = new RegExp("<\\s*\\/\\s*" + tagNameAlternation + "\\s*>", "gi");
+
+      let converted = sqlText.replace(openTagRegex, (_, rawTagName, rawAttrs) => {
+        const attrs = parseAttributes(rawAttrs || "");
+        const testExpression = getTestExpression(rawTagName, attrs);
+        const prepend = attrs.prepend ? attrs.prepend + " " : "";
+        return `<if test="${testExpression}">${prepend}`;
+      });
+
+      converted = converted.replace(closeTagRegex, "</if>");
+      return converted;
+    }
+
+    function convertDynamicTag(sqlText) {
+      const dynamicOpenTagRegex = /<\s*dynamic\b([^>]*)>/gi;
+      const dynamicCloseTagRegex = /<\s*\/\s*dynamic\s*>/gi;
+
+      let converted = sqlText.replace(dynamicOpenTagRegex, (_, rawAttrs) => {
+        const attrs = parseAttributes(rawAttrs || "");
+        const prefix = attrs.prepend || "";
+        if (prefix) {
+          return `<trim prefix="${prefix}" prefixOverrides="AND |OR ">`;
+        }
+        return `<trim prefixOverrides="AND |OR ">`;
+      });
+
+      converted = converted.replace(dynamicCloseTagRegex, "</trim>");
+      return converted;
+    }
+
+    function convertStatementAttributes(sqlText) {
+      return sqlText
+        .replace(/\bparameterClass\s*=\s*("([^"]*)"|'([^']*)')/gi, "parameterType=$1")
+        .replace(/\bresultClass\s*=\s*("([^"]*)"|'([^']*)')/gi, "resultType=$1");
+    }
+
+    function toLowerCamelFromUpperSnake(token) {
+      const lowerCase = token.toLowerCase();
+      return lowerCase.replace(/_([a-z0-9])/g, (_, ch) => ch.toUpperCase());
+    }
+
+    function mapArgumentToken(token) {
+      const normalized = token.trim();
+      if (/^[A-Z][A-Z0-9_]*$/.test(normalized) && normalized.includes("_")) {
+        return "dto." + toLowerCamelFromUpperSnake(normalized);
+      }
+      return normalized;
+    }
+
+    function convertHashParameterSyntax(sqlText) {
+      return sqlText.replace(/#\s*([a-zA-Z_][\w.\[\]]*)\s*#/g, (_, rawToken) => {
+        const mappedToken = mapArgumentToken(rawToken);
+        return `#{${mappedToken}}`;
+      });
+    }
+
+    function convertDollarParameterSyntax(sqlText) {
+      return sqlText.replace(/\$\s*([a-zA-Z_][\w.\[\]]*)\s*\$/g, (_, rawToken) => {
+        const mappedToken = mapArgumentToken(rawToken);
+        return "${" + mappedToken + "}";
+      });
+    }
+
+    function toForeachItemExpression(expression, itemName) {
+      const trimmed = expression.trim();
+      const bracketMatch = trimmed.match(/^([a-zA-Z_][\w.]*)\[\]\.([a-zA-Z_][\w.]*)$/);
+      if (bracketMatch) {
+        return itemName + "." + bracketMatch[2];
+      }
+      const dottedMatch = trimmed.match(/^([a-zA-Z_][\w.]*)\.([a-zA-Z_][\w.]*)$/);
+      if (dottedMatch) {
+        return itemName + "." + dottedMatch[2];
+      }
+      return itemName;
+    }
+
+    function convertIterateBodyToForeach(body, property, itemName) {
+      let result = body;
+      const escapedProperty = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const dollarRegex = new RegExp("\\$\\s*(" + escapedProperty + "\\[\\](?:\\.[a-zA-Z_][\\w.]*)?)\\s*\\$", "g");
+      const hashRegex = new RegExp("#\\s*(" + escapedProperty + "\\[\\](?:\\.[a-zA-Z_][\\w.]*)?)\\s*#", "g");
+
+      result = result.replace(dollarRegex, (_, expr) => "${" + toForeachItemExpression(expr, itemName) + "}");
+      result = result.replace(hashRegex, (_, expr) => "#{" + toForeachItemExpression(expr, itemName) + "}");
+      result = result.replace(new RegExp("#\\s*" + escapedProperty + "\\[\\]\\s*#", "g"), "#{" + itemName + "}");
+      result = result.replace(new RegExp("#\\s*" + escapedProperty + "\\s*#", "g"), "#{" + itemName + "}");
+      result = result.replace(new RegExp("\\$\\s*" + escapedProperty + "\\s*\\$", "g"), "${" + itemName + "}");
+      result = result.replace(new RegExp("#\\{\\s*" + escapedProperty + "\\s*\\}", "g"), "#{" + itemName + "}");
+      result = result.replace(new RegExp("\\$\\{\\s*" + escapedProperty + "\\s*\\}", "g"), "${" + itemName + "}");
+      return result;
+    }
+
+    function convertIterateTag(sqlText) {
+      const iterateBlockRegex = /<\s*iterate\b([^>]*)>([\s\S]*?)<\s*\/\s*iterate\s*>/gi;
+      return sqlText.replace(iterateBlockRegex, (_, rawAttrs, body) => {
+        const attrs = parseAttributes(rawAttrs || "");
+        const property = attrs.property || "list";
+        const conjunction = Object.prototype.hasOwnProperty.call(attrs, "conjunction")
+          ? attrs.conjunction
+          : ",";
+        const itemName = attrs.item || "item";
+        const open = attrs.open ? ` open="${attrs.open}"` : "";
+        const close = attrs.close ? ` close="${attrs.close}"` : "";
+        const convertedBody = convertIterateBodyToForeach(body, property, itemName);
+        return `<foreach collection="${property}" item="${itemName}" separator="${conjunction}"${open}${close}>${convertedBody}</foreach>`;
+      });
+    }
+
+    function convertMyBatis2to3(input) {
+      let output = input;
+      output = convertStatementAttributes(output);
+      output = convertDynamicTag(output);
+      output = convertConditionalTags(output);
+      output = convertIterateTag(output);
+      output = convertHashParameterSyntax(output);
+      output = convertDollarParameterSyntax(output);
+      return output;
+    }
+
+    function loadSample() {
+      const sample = `
+<sqlMap namespace="N">
+  <select id="s" parameterClass="map" resultClass="hashmap">
+    <dynamic prepend="WHERE">
+      <isNotEmpty prepend="AND" property="name">
+        NAME = #name#
+      </isNotEmpty>
+    </dynamic>
+    <iterate property="arrColist" conjunction=""><![CDATA{
+    , $arrColist[].col$
+    ]]></iterate>
+    AND TEST_ARG = #TEST_ARG#
+  </select>
+</sqlMap>`.trim();
+      document.getElementById("source").value = sample;
+    }
+
+    document.getElementById("convertBtn").addEventListener("click", () => {
+      const source = document.getElementById("source").value;
+      document.getElementById("result").value = convertMyBatis2to3(source);
+    });
+
+    document.getElementById("sampleBtn").addEventListener("click", loadSample);
+
+    document.getElementById("copyBtn").addEventListener("click", async () => {
+      const output = document.getElementById("result").value;
+      if (!output) {
+        return;
+      }
+      await navigator.clipboard.writeText(output);
+    });
+
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      document.getElementById("source").value = "";
+      document.getElementById("result").value = "";
+    });
+  </script>
+</body>
+</html>
