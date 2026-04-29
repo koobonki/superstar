@@ -63,13 +63,13 @@ function getTestExpression(tagName, attrs) {
     case "isNotEqual":
       return property + " == null or !" + property + ".equals(" + compareTarget + ")";
     case "isGreaterThan":
-      return property + " > " + compareTarget;
+      return property + " != null and " + compareTarget + " != null and " + property + " > " + compareTarget;
     case "isGreaterEqual":
-      return property + " >= " + compareTarget;
+      return property + " != null and " + compareTarget + " != null and " + property + " >= " + compareTarget;
     case "isLessThan":
-      return property + " < " + compareTarget;
+      return property + " != null and " + compareTarget + " != null and " + property + " < " + compareTarget;
     case "isLessEqual":
-      return property + " <= " + compareTarget;
+      return property + " != null and " + compareTarget + " != null and " + property + " <= " + compareTarget;
     default:
       return "/* TODO: condition */";
   }
