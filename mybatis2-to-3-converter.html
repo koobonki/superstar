@@ -263,24 +263,72 @@
       });
     }
 
-    function convertIterateTag(sqlText) {
-      // 간단한 iterate -> foreach 변환
-      const iterateOpenRegex = /<\s*iterate\b([^>]*)>/gi;
-      const iterateCloseRegex = /<\s*\/\s*iterate\s*>/gi;
+    function escapeRegex(text) {
+      return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
 
-      let converted = sqlText.replace(iterateOpenRegex, (_, rawAttrs) => {
-        const attrs = parseAttributes(rawAttrs || "");
-        const property = attrs.property || "list";
-        const conjunction = attrs.conjunction || ",";
-        const open = attrs.open ? ` open="${attrs.open}"` : "";
-        const close = attrs.close ? ` close="${attrs.close}"` : "";
-        return `<foreach collection="${property}" item="item" separator="${conjunction}"${open}${close}>`;
+    function normalizePropertySuffix(rawSuffix) {
+      if (!rawSuffix) {
+        return "";
+      }
+      return rawSuffix
+        .split(".")
+        .map((segment) => segment.trim())
+        .filter(Boolean)
+        .join(".");
+    }
+
+    function convertIterateBodyPlaceholders(bodyText, collectionName, itemName) {
+      const escapedCollection = escapeRegex(collectionName);
+      const arrayPattern = `${escapedCollection}\\s*\\[\\s*\\]\\s*(?:\\.\\s*([a-zA-Z_][\\w\\s.]*)\\s*)?`;
+      const directPattern = `${escapedCollection}(?!\\s*\\[)\\s*(?:\\.\\s*([a-zA-Z_][\\w\\s.]*)\\s*)?`;
+
+      function toIterateExpression(rawSuffix) {
+        const suffix = normalizePropertySuffix(rawSuffix);
+        return `${itemName}${suffix ? "." + suffix : ""}`;
+      }
+
+      let converted = bodyText.replace(new RegExp(`#\\s*${arrayPattern}#`, "g"), (_, rawSuffix) => {
+        return `#{${toIterateExpression(rawSuffix)}}`;
       });
 
-      converted = converted.replace(iterateCloseRegex, "</foreach>");
-      // iBATIS iterate 내부의 #property[]# 패턴을 #{item}으로 변환
-      converted = converted.replace(/#\s*([a-zA-Z_][\w.]*)\[\]\s*#/g, "#{item}");
+      converted = converted.replace(new RegExp(`\\$\\s*${arrayPattern}\\$`, "g"), (_, rawSuffix) => {
+        return `\${${toIterateExpression(rawSuffix)}}`;
+      });
+
+      converted = converted.replace(new RegExp(`#\\s*${directPattern}#`, "g"), (_, rawSuffix) => {
+        return `#{${toIterateExpression(rawSuffix)}}`;
+      });
+
+      converted = converted.replace(new RegExp(`\\$\\s*${directPattern}\\$`, "g"), (_, rawSuffix) => {
+        return `\${${toIterateExpression(rawSuffix)}}`;
+      });
+
+      // 이미 #{property} / ${property} 형태여도 iterate item 기준으로 재매핑
+      converted = converted.replace(new RegExp(`#\\{\\s*${directPattern}\\}`, "g"), (_, rawSuffix) => {
+        return `#{${toIterateExpression(rawSuffix)}}`;
+      });
+
+      converted = converted.replace(new RegExp(`\\$\\{\\s*${directPattern}\\}`, "g"), (_, rawSuffix) => {
+        return `\${${toIterateExpression(rawSuffix)}}`;
+      });
+
       return converted;
+    }
+
+    function convertIterateTag(sqlText) {
+      // iterate 블록 전체를 foreach 블록으로 변환
+      const iterateBlockRegex = /<\s*iterate\b([^>]*)>([\s\S]*?)<\s*\/\s*iterate\s*>/gi;
+      return sqlText.replace(iterateBlockRegex, (_, rawAttrs, rawBody) => {
+        const attrs = parseAttributes(rawAttrs || "");
+        const property = attrs.property || "list";
+        const itemName = attrs.item || "item";
+        const conjunction = Object.prototype.hasOwnProperty.call(attrs, "conjunction") ? attrs.conjunction : ",";
+        const open = attrs.open ? ` open="${attrs.open}"` : "";
+        const close = attrs.close ? ` close="${attrs.close}"` : "";
+        const convertedBody = convertIterateBodyPlaceholders(rawBody, property, itemName);
+        return `<foreach collection="${property}" item="${itemName}" separator="${conjunction}"${open}${close}>${convertedBody}</foreach>`;
+      });
     }
 
     function convertMyBatis2to3(input) {
@@ -309,10 +357,9 @@
       TYPE = #TEST_ARG#
     </isEqual>
   </dynamic>
-  AND ID IN
-  <iterate property="ids" open="(" close=")" conjunction=",">
-    #ids[]#
-  </iterate>
+  <iterate property="arrColist" conjunction=""><![CDATA[
+    , $arrColist[].col$
+  ]]></iterate>
 </select>`.trim();
       document.getElementById("source").value = sample;
     }
