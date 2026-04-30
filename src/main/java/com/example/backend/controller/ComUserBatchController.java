@@ -1,9 +1,10 @@
 package com.example.backend.controller;
 
-import com.example.backend.service.ComUserListSaveService;
+import com.example.backend.dto.ComUserBatchDto;
+import com.example.backend.service.ComUserBatchService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -24,7 +25,7 @@ import java.util.List;
 @RequestMapping("/api/com-users")
 public class ComUserBatchController {
 
-    private final ComUserListSaveService comUserListSaveService;
+    private final ComUserBatchService comUserBatchService;
 
     @Operation(
             summary = "사용자 목록 조회",
@@ -32,19 +33,8 @@ public class ComUserBatchController {
             security = @SecurityRequirement(name = "oauth2")
     )
     @GetMapping
-    public ResponseEntity<List<ComUserRowResponse>> getComUsers() {
-        List<ComUserListSaveService.ComUserRow> rows = comUserListSaveService.getUserRows();
-
-        List<ComUserRowResponse> response = rows.stream()
-                .map(row -> new ComUserRowResponse(
-                        row.id(),
-                        row.userId(),
-                        row.userName(),
-                        row.role()
-                ))
-                .toList();
-
-        return ResponseEntity.ok(response);
+    public ResponseEntity<List<ComUserBatchDto.ComUserRowResponse>> getComUsers() {
+        return ResponseEntity.ok(comUserBatchService.getComUsers());
     }
 
     @Operation(
@@ -53,55 +43,9 @@ public class ComUserBatchController {
             security = @SecurityRequirement(name = "oauth2")
     )
     @PostMapping("/save")
-    public ResponseEntity<BatchSaveResponse> saveComUsers(@RequestBody List<ComUserUpdateRequest> request) {
-        ComUserListSaveService.BatchSaveResult result = comUserListSaveService.saveUpdatedRows(
-                request.stream()
-                        .map(item -> new ComUserListSaveService.ComUserUpdateItem(
-                                item.id(),
-                                item.userName(),
-                                item.role()
-                        ))
-                        .toList()
-        );
-
-        return ResponseEntity.ok(new BatchSaveResponse(
-                result.requestedCount(),
-                result.updatedCount(),
-                result.skippedCount(),
-                result.errors()
-        ));
-    }
-
-    /**
-     * 조회 응답 DTO
-     */
-    public record ComUserRowResponse(
-            Long id,
-            String userId,
-            String userName,
-            String role
+    public ResponseEntity<ComUserBatchDto.BatchSaveResponse> saveComUsers(
+            @RequestBody List<@Valid ComUserBatchDto.ComUserUpdateRequest> request
     ) {
-    }
-
-    /**
-     * 수정 저장 요청 DTO
-     */
-    public record ComUserUpdateRequest(
-            @NotNull(message = "id는 필수입니다.")
-            Long id,
-            String userName,
-            String role
-    ) {
-    }
-
-    /**
-     * 일괄 저장 응답 DTO
-     */
-    public record BatchSaveResponse(
-            int requestedCount,
-            int updatedCount,
-            int skippedCount,
-            List<String> errors
-    ) {
+        return ResponseEntity.ok(comUserBatchService.saveComUsers(request));
     }
 }
