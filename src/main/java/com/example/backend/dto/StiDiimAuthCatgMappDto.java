@@ -41,4 +41,19 @@ public final class StiDiimAuthCatgMappDto {
             String chgUserId
     ) {
     }
+
+    /**
+     * SELECT 응답 DTO (MyBatis 조회용)
+     */
+    public record SelectResponse(
+            String authGrpId,
+            String dataCatgCd,
+            String userMemoTxt,
+            String userYn,
+            LocalDateTime crtTm,
+            String crtUserId,
+            LocalDateTime chgTm,
+            String chgUserId
+    ) {
+    }
 }

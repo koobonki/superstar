@@ -5,12 +5,14 @@ import com.example.backend.domain.StiDiimAuthCatgMappId;
 import com.example.backend.dto.StiDiimAuthCatgMappDto;
 import com.example.backend.mapper.StiDiimAuthCatgMappMapper;
 import com.example.backend.repository.jpa.StiDiimAuthCatgMappRepository;
+import com.example.backend.repository.mybatis.StiDiimAuthCatgMappMybatisMapper;
 import com.example.backend.service.StiDiimAuthCatgMappService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * STI_DIIM_AUTH_CATG_MAPP 저장 서비스 구현체
@@ -21,7 +23,17 @@ import java.time.LocalDateTime;
 public class StiDiimAuthCatgMappServiceImpl implements StiDiimAuthCatgMappService {
 
     private final StiDiimAuthCatgMappRepository repository;
+    private final StiDiimAuthCatgMappMybatisMapper mybatisMapper;
     private final StiDiimAuthCatgMappMapper mapper;
+
+    /**
+     * 조회는 MyBatis로 처리
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<StiDiimAuthCatgMappDto.SelectResponse> getMappings(String authGrpId) {
+        return mybatisMapper.selectMappings(authGrpId);
+    }
 
     @Override
     @Transactional
